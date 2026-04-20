@@ -1,74 +1,78 @@
----
-meta:
-  - name: description
-    content: A simple Laravel integration with Fatture in Cloud APIs v2.
-gitName: laravel-fatture-in-cloud-v2
----
+# Laravel Fatture in Cloud v2
 
-# laravel-fatture-in-cloud-v2
-
-A simple Laravel integration with [Fatture in Cloud APIs v2](https://developers.fattureincloud.it/).
-
-[![Github](./assets/icon/github.svg "Github Icon")](https://github.com/offline-agency/laravel-fatture-in-cloud-v2)
 [![Latest Stable Version](https://poser.pugx.org/offline-agency/laravel-fatture-in-cloud-v2/v/stable)](https://packagist.org/packages/offline-agency/laravel-fatture-in-cloud-v2)
-[![Total Downloads](https://img.shields.io/packagist/dt/offline-agency/laravel-fatture-in-cloud-v2.svg?style=flat-square)](https://packagist.org/packages/offline-agency/laravel-fatture-in-cloud-v2)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](LICENSE.md)
-[![StyleCI](https://github.styleci.io/repos/167236902/shield)](https://styleci.io/repos/167236902)
+[![run-tests](https://github.com/offline-agency/laravel-fatture-in-cloud-v2/actions/workflows/main.yml/badge.svg)](https://github.com/offline-agency/laravel-fatture-in-cloud-v2/actions/workflows/main.yml)
+[![codecov](https://codecov.io/gh/offline-agency/laravel-fatture-in-cloud-v2/branch/master/graph/badge.svg?token=02NPUBvT9i)](https://codecov.io/gh/offline-agency/laravel-fatture-in-cloud-v2)
+[![Laravel Pint](https://img.shields.io/badge/code%20style-pint-orange)](https://github.com/laravel/pint)
+[![PHPStan Level 6](https://img.shields.io/badge/PHPStan-level%206-brightgreen)](https://phpstan.org/)
+[![Total Downloads](https://img.shields.io/packagist/dt/offline-agency/laravel-fatture-in-cloud-v2.svg?style=flat-square)](https://packagist.org/packages/offline-agency/laravel-fatture-in-cloud-v2)
+![Laravel Fatture in Cloud v2](https://banners.beyondco.de/Laravel%20Fatture%20in%20Cloud%20v2.png?theme=dark&packageManager=composer+require&packageName=offline-agency%2Flaravel-fatture-in-cloud-v2&pattern=autumn&style=style_1&description=A+simple+laravel+integration+with+Fatture+in+Cloud+APIs+v2&md=1&showWatermark=0&fontSize=100px&images=currency-euro&widths=200)
 
-::: warning
-This is the documentation for the API v2. You can find the package for the API v1 [here](https://docs.offlineagency.com/laravel-fatture-in-cloud/#laravel-fatture-in-cloud)
-:::
+🔙 This is the documentation for the API v2. You can find the package for the API v1 [here](https://docs.offlineagency.com/laravel-fatture-in-cloud/#laravel-fatture-in-cloud).
 
-## Installation
+### Warning for integrators
 
-Install the package through [Composer](http://getcomposer.org/).
+- **Keep your copy up to date:** Check the [official laravel-fatture-in-cloud-v2](https://github.com/offline-agency/laravel-fatture-in-cloud-v2) package and update your local dependency (e.g. run `composer update offline-agency/laravel-fatture-in-cloud-v2` or pull the latest from the repository).
+- **Response variables are camelCase:** Entity properties use **camelCase** (e.g. `amountGross`, `amountNet`, `amountVat`), not snake_case (`amount_gross`, `amount_net`, `amount_vat`). If you have existing code that reads response data, update it to use the new property names. Use the entity classes in this package as the reference—for example, [`IssuedDocument`](src/Entities/IssuedDocument/IssuedDocument.php) for issued documents. Examples: `amount_gross` → `amountGross`, `amount_net` → `amountNet`, `created_at` → `createdAt`.
+- **Config:** Check the package config [`config/fatture-in-cloud-v2.php`](config/fatture-in-cloud-v2.php) and update your project’s config to match, especially **`baseUrl`**. Use the root API URL only (no extra path segments).
 
-Run the Composer require command from the Terminal:
+## Requirements
 
-```bash
-composer require offline-agency/laravel-fatture-in-cloud-v2
-```
+- PHP ^8.4 (includes 8.5)
+- Laravel ^11.0|^12.0|^13.0
 
-You should publish config file with:
+| PHP | Laravel 11 | Laravel 12 | Laravel 13 |
+|-----|:----------:|:----------:|:----------:|
+| 8.4 | ✅ | ✅ | ✅ |
+| 8.5 | ✅ | ✅ | ✅ |
 
-```bash
-php artisan vendor:publish --provider="OfflineAgency\LaravelFattureInCloudV2\LaravelFattureInCloudV2ServiceProvider"
-```
+### API Granularization (Breaking Changes)
+The monolithic `Settings` and `Setting` classes have been split into granular resources to improve maintainability and strictly follow the Single Responsibility Principle:
+- `Settings` -> Split into `VatType`, `PaymentAccount`, and `PaymentMethod`.
+- `ArchiveDocument` -> Renamed to `Archive`.
+- `Cashbooks` -> Renamed to `Cashbook`.
+- New classes added: `Email`, `Situation`, `PriceList`, and `Webhook`.
 
-## Configuration
+### Strictly Typed & Readonly Entities
+All entities (e.g., `Client`, `IssuedDocument`, `PriceList`) have been refactored to be **readonly** classes with **strict types**.
+- Properties are now immutable.
+- Usage of `mixed` types has been minimized in favor of strict `string`, `int`, `float`, `bool`, etc.
+- Constructors ensure safe data mapping from API responses.
 
-Package provide multiple-companies handling. In your config you can provide more companies like that
-```php
-... 
+### Modern testing suite
+- Switched from PHPUnit to **Pest PHP** for a more expressive and modern testing experience.
+- Automated code styling with **Laravel Pint**.
 
-'companies' => [
-    'default' => [
-        'id' => env('FCV2_DEFAULT_ID', ''),
-        'bearer' => env('FCV2_DEFAULT_BEARER', '')
-    ],
-    'first_company' => [
-        'id' => env('FCV2_FIRST_COMPANY_ID', ''),
-        'bearer' => env('FCV2_FIRST_COMPANY_BEARER', '')
-    ],
-    'second_company' => [
-        'id' => env('FCV2_SECOND_COMPANY_ID', ''),
-        'bearer' => env('FCV2_SECOND_COMPANY_BEARER', '')
-    ]
-]
-```
+### Architecture
+- The package now utilizes a central `FattureInCloud` connector for better state management.
+- API interactions are handled via the native Laravel `Http` client.
 
-Then you can specify (or not) a company on class initialization:
-```php
-// take the default
+## Documentation, Installation, and Usage Instructions
+
+This package provides a simple Laravel integration with [Fatture in Cloud APIs v2](https://developers.fattureincloud.it/).
+
+See the [documentation](https://docs.offlineagency.com/laravel-fatture-in-cloud-v2/) for detailed installation and usage instructions.
+``` php
 $issued_documents = new \OfflineAgency\LaravelFattureInCloudV2\Api\IssuedDocument();
+$issued_document_list = $issued_document->list('invoice', [
+    'per_page' => 50
+]);  
 
-// specify company
-$issued_documents = new \OfflineAgency\LaravelFattureInCloudV2\Api\IssuedDocument('first_company');
+// return an array of invoices 
+$issued_document_list->getItems();
+
+// return pagination fields like page, per_page...
+$issued_document_list->getPagination();
+
+// return single product's fields
+$product = new \OfflineAgency\LaravelFattureInCloudV2\Api\Product();
+$product_detail = $product->detail($product_id);
 ```
 
 ## Features
 
-### All <Badge type="error" text="HOT" vertical="middle"/>
+### All [![HOT](https://img.shields.io/static/v1.svg?label=&message=HOT&color=red)]()
 This package provide `all()` method that allow you to get an array of all results without pagination. It's implemented for all endpoint that provide a list method with pagination. Let's see an example:
 
 ```php
@@ -105,8 +109,7 @@ $issued_document_list->getPagination()->goToFirstPage();
 $issued_document_list->getPagination()->goToLastPage();
 ```
 
-### Bin <Badge type="error" text="HOT" vertical="middle"/>
-
+### Bin [![HOT](https://img.shields.io/static/v1.svg?label=&message=HOT&color=red)]()
 This package provides bin() method for deleted issued documents that allow you to get its detail. This is very useful, for example, when you convert a
 proforma into an invoice (deleting the proforma) and you need old document's detail. Let's see an example:
 
@@ -115,11 +118,8 @@ $issued_documents = new \OfflineAgency\LaravelFattureInCloudV2\Api\IssuedDocumen
 $response = $issued_documents->bin($document_id);
 ```
 
-For the example described above the package also provide the `binDetail()` method. It allows you to get the invoice from the ID of a deleted proforma. 
-
-### Rate limit <Badge type="error" text="HOT" vertical="middle"/>
-
-This package provides a method to intercept throttle errors (403, 429) and automatically retry.
+### Rate limit [![HOT](https://img.shields.io/static/v1.svg?label=&message=HOT&color=red)]()
+This     package provides a method to intercept throttle errors (403, 429) and automatically retry.
 You can specify limits on your config, remember to use milliseconds to indicate time:
 
 ```php
@@ -130,220 +130,70 @@ You can specify limits on your config, remember to use milliseconds to indicate 
 ],
 ```
 
-## Usage instructions & examples
-This package provides a class for each api group like clients, issued documents, products... After instantiate one of them you can access to all its endpoints. 
-Here you can see an example of just how simple this package is to use.
+## API coverage
 
-```php
-$client = new \OfflineAgency\LaravelFattureInCloudV2\Api\Client();
-$client_list = $client->list();
-```
+We are currently work on this package to implement all endpoints. Enable notifications to be notified when new API are released.
 
-This snippet returns an instance of `\OfflineAgency\LaravelFattureInCloudV2\Entities\Client\ClientList` that provide 3 public methods:
-- `hasItems()` that check if the list has  at least one element
-- `getItems()` that returns an array of `\OfflineAgency\LaravelFattureInCloudV2\Entities\Client\Client` from which you can access to all client's fields
-- `getPagination()` that returns an instance of `\OfflineAgency\LaravelFattureInCloudV2\Entities\Client\ClientPagination` from which you can access to all pagination's fields and [methods](#pagination)
+✅ User
 
-You can also specify query parameters passing an array:
-```php
-$client = new \OfflineAgency\LaravelFattureInCloudV2\Api\Client();
-$client_list = $client->list([
-    'per_page' => 50
-]);
-```
+✅ Companies
 
-If the endpoint expect one or more required parameters and if it's a GET endpoint you can provide them as the follow:
-```php
-$product = new \OfflineAgency\LaravelFattureInCloudV2\Api\Product();
-$product_detail = $product->detail($product_id, [
-    'fields' => 'id,name,code'
-]);
-```
+✅ Clients
 
-If the endpoint is a POST/PUT one you only need to provide an array with all parameters (required and not):
-```php
-$product = new \OfflineAgency\LaravelFattureInCloudV2\Api\Product();
-$new_product = $product->create([
-    'data' => [
-        'name' => $product_name,
-        'code' => $product_code
-    ],
-]);
-```
-The package validates body using Laravel [Validators](https://laravel.com/docs/9.x/validation#manually-creating-validators). If something goes wrong the method returns an instance of `\Illuminate\Support\MessageBag` that contains all errors.
+✅ Suppliers
 
-## Api coverage
+✅ Products
 
-We are currently work on this package to implement all endpoints. Enable notifications on [GitHub](https://github.com/offline-agency/laravel-fatture-in-cloud-v2) to be notified when new API are released.
+✅ Issued Documents
 
-✅ = implemented
+✅ Issued e-invoices
 
-🔜 = coming soon
+✅ Received Documents
 
-❌ = not implemented
+✅ Receipts
 
-Each response entity has this prefix on the namespace: `\OfflineAgency\LaravelFattureInCloudV2\Entities\`
+✅ Taxes
 
-#### User
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | Get User Info | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ✅ | List User Companies | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
+✅ Archive
 
-#### Companies
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | Get Company Info | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
+✅ Cashbook
 
-#### Clients
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | List clients | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `Client\ClientList` |
-| ✅ | Create client | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `Client\Client` |
-| ✅ | Get client | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `Client\Client` |
-| ✅ | Modify client | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | `Client\Client` |
-| ✅ | Delete client | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | `'Client deleted'` |
+✅ Info
 
-#### Suppliers
+✅ Price Lists
 
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | List Suppliers | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `Supplier\SupplierList` |
-| ✅ | Create Supplier | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `Supplier\Supplier` |
-| ✅ | Get Supplier | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `Supplier\Supplier` |
-| ✅ | Modify Supplier | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | `Supplier\Supplier` |
-| ✅ | Delete Supplier | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | `'Supplier deleted'` |
+✅ Webhooks
 
-#### Products
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | List products | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `Product\ProductList` |
-| ✅ | Create product | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `Product\Product` |
-| ✅ | Get product | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `Product\Product` |
-| ✅ | Modify product | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | `Product\Product` |
-| ✅ | Delete product | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | `'Product deleted'` |
+✅ Situation
 
-#### Issued Documents
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | List Issued Documents | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `IssuedDocument\IssuedDocumentList` |
-| ✅ | Create Issued Documents | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `IssuedDocument\IssuedDocument` |
-| ✅ | Get Issued Document | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `IssuedDocument\IssuedDocument` |
-| ✅ | Get Deleted Document | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `IssuedDocument\IssuedDocument` |
-| ✅ | Modify Issued Document | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | `IssuedDocument\IssuedDocument` |
-| ✅ | Delete Issued Document | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | `'Document deleted'` |
-| ✅ | Get New Issued Document Totals | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `IssuedDocument\IssuedDocumentTotals` |
-| ✅ | Get Existing Issued Document Totals | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `IssuedDocument\IssuedDocumentTotals` |
-| ✅ | Upload Issued Document Attachment | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `IssuedDocument\IssuedDocumentAttachment` |
-| ✅ | Delete Issued Document Attachment | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | `'Attachment deleted'` |
-| ✅ | Get Issued Document Pre-create info | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `IssuedDocument\IssuedDocumentPreCreateInfo` |
-| ✅ | Get Email Data | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | `IssuedDocument\IssuedDocumentEmail` |
-| ✅ | Schedule Email | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | `IssuedDocument\IssuedDocumentScheduleEmail` |
+✅ Emails
 
-#### Issued e-invoice
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| 🔜 | Send the e-invoice | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| 🔜 | Verify e-invoice XML | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | Get e-invoice XML | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | Get e-invoice rejection reason | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
+✅ Stock
 
-#### Received Documents
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ❌ | List Received Documents | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Create Received Document | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Received Document | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify Received Document | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete Received Document | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ❌ | Get New Received Document Totals | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Existing Received Document Totals | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Upload Received Document Attachment | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Delete Received Document Attachment | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ❌ | Get Received Document Pre-create info | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
+✅ Payment Accounts
 
-#### Receipts
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ✅ | List Receipts | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ✅ | Create Receipts | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ✅ | Get Receipts | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ✅ | Modify Receipts | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ✅ | Delete Receipts | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ✅ | Get Receipts Pre-Create Info | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ✅ | Get Receipts Monthly Totals | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
+✅ Payment Methods
 
-#### Taxes
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ❌ | List F24 | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Create F24 | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get RF24 | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify F24 | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete F24 | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ❌ | Upload F24 Attachment | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Delete F24 Attachment | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-
-#### Archive
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ❌ | List Archive Documents | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Create Archive Documents | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Archive Documents | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify Archive Documents | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete Archive Documents | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ❌ | Upload Archive Documents Attachment | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-
-#### Cashbook
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ❌ | List Cashbook Entries | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Create Cashbook Entries | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Cashbook Entries | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify Cashbook Entries | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete Cashbook Entries | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-
-#### Info
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| 🔜 | List Countries | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Detailed Countries | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Cities | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Languages | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Templates | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Currencies | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Units of Measure | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Delivery Notes Default Casuals | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ✅ | List Vat Types | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Payment Methods | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Payment Accounts | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Revenue Centers | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Cost Centers | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Product Categories | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Received Document Categories | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| 🔜 | List Archive Categories | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-
-#### Settings
-| Done | Endpoint | Type | Response |
-| ---- | -------- | ---- | -------- |
-| ❌ | Create Payment Method | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Payment Method | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify Payment Method | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete Payment Method | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ❌ | Create Payment Account | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Payment Account | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify Payment Account | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete Payment Account | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
-| ❌ | Create Vat Type | [![POST method](https://img.shields.io/static/v1.svg?label=&message=POST&color=blue)]() | - |
-| ❌ | Get Vat Type | [![GET method](https://img.shields.io/static/v1.svg?label=&message=GET&color=green)]() | - |
-| ❌ | Modify Vat Type | [![PUT method](https://img.shields.io/static/v1.svg?label=&message=PUT&color=violet)]() | - |
-| ❌ | Delete Vat Type | [![DELETE method](https://img.shields.io/static/v1.svg?label=&message=DELETE&color=red)]() | - |
+✅ VAT Types
 
 ## Testing
 
 ```bash
 composer test
 ```
+
+Unit and Feature tests use mocked HTTP. To run **integration tests** (real HTTP calls to Fatture in Cloud), set in `.env`:
+
+- `FCV2_DEFAULT_ID` – company ID
+- `FCV2_DEFAULT_BEARER` – API bearer token
+
+Then run:
+
+```bash
+php vendor/bin/pest tests/Integration
+```
+
+If these env vars are not set, integration tests are skipped.
 
 ## Contributing
 
@@ -359,7 +209,7 @@ tracker.
 - [Offline Agency](https://github.com/offline-agency)
 - [Giacomo Fabbian](https://github.com/Giacomo92)
 - [Nicolas Sanavia](https://github.com/SanaviaNicolas)
-- [All Contributors](../../contributors)
+- [All Contributors](https://github.com/offline-agency/laravel-fatture-in-cloud-v2/graphs/contributors)
 
 ## About us
 

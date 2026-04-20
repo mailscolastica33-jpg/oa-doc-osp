@@ -1,530 +1,1483 @@
----
-meta: 
-  - name: description
-    content: A simple cart implementation for Laravel with fiscal support.
-gitName: laravel-cart
----
+# Laravel Cart
 
-# laravel-cart
-
-A simple cart implementation for Laravel with fiscal support.
-
-[![Github](./assets/icon/github.svg "Github Icon")](https://github.com/offline-agency/laravel-cart)
 [![Latest Stable Version](https://poser.pugx.org/offline-agency/laravel-cart/v/stable)](https://packagist.org/packages/offline-agency/laravel-cart)
 [![Total Downloads](https://img.shields.io/packagist/dt/offline-agency/laravel-cart.svg?style=flat-square)](https://packagist.org/packages/offline-agency/laravel-cart)
+[![CI](https://github.com/offline-agency/laravel-cart/actions/workflows/ci.yml/badge.svg)](https://github.com/offline-agency/laravel-cart/actions/workflows/ci.yml)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](LICENSE.md)
-[![Laravel](https://github.com/offline-agency/laravel-cart/actions/workflows/laravel.yml/badge.svg?branch=main)](https://github.com/offline-agency/laravel-cart/actions/workflows/laravel.yml)
-[![StyleCI](https://github.styleci.io/repos/167277388/shield)](https://styleci.io/repos/167277388)
-<!--[![codecov](https://codecov.io/gh/offline-agency/laravel-cart/branch/master/graph/badge.svg?token=0BHADJQYAW)](https://codecov.io/gh/offline-agency/laravel-cart)-->
+[![Pint](https://img.shields.io/badge/code%20style-pint-pink?style=flat-square)](https://github.com/laravel/pint)
+[![codecov](https://codecov.io/gh/offline-agency/laravel-cart/branch/main/graph/badge.svg?token=0BHADJQYAW)](https://app.codecov.io/gh/offline-agency/laravel-cart)
+
+A Laravel shopping cart with fiscal support. Handles VAT-inclusive pricing, Italian fiscal codes, per-item and cart-wide coupons, database persistence, and multiple cart instances.
+
+---
+
+## Requirements
+
+PHP 8.2 or higher is required.
+
+| Laravel | PHP   | Package |
+|---------|-------|---------|
+| 10.x    | ^8.2  | ^3.x    |
+| 11.x    | ^8.2  | ^3.x    |
+| 12.x    | ^8.2  | ^4.x    |
+
+---
 
 ## Installation
 
-Install the package through [Composer](https://getcomposer.org/).
+Install the package via Composer:
 
-Run the Composer require command from the Terminal:
-
-``` bash
+```bash
 composer require offline-agency/laravel-cart
 ```
 
-## Overview
+Publish the configuration file:
 
-Look at one of the following topics to learn more about Laravel Cart
+```bash
+php artisan vendor:publish --tag=cart-config
+```
 
-- [Usage](#usage)
-- [Collection](#collection)
-- [Instances](#instances)
-- [Models](#models)
-- [Database](#database)
-- [Exceptions](#exceptions)
-- [Events](#events)
-- [Example](#example)
+Publish and run the migrations (required only if you use database persistence):
+
+```bash
+php artisan vendor:publish --tag=cart-migrations
+php artisan migrate
+```
+
+Service provider auto-discovery registers the package automatically. No manual registration is needed.
+
+---
+
+## Quick Start
+
+Add an item in a controller and display it in a Blade view:
+
+```php
+// In your controller
+use OfflineAgency\LaravelCart\Facades\Cart;
+
+$item = Cart::add(
+    id: 42,
+    name: 'Blue T-Shirt',
+    subtitle: 'Size M',
+    qty: 2,
+    price: 19.67,      // price without VAT
+    totalPrice: 24.00, // price with VAT included
+    vat: 4.33,         // VAT amount per unit
+);
+
+return view('cart.show');
+```
+
+```blade
+{{-- resources/views/cart/show.blade.php --}}
+@foreach (Cart::content() as $item)
+    <tr>
+        <td>{{ $item->name }}</td>
+        <td>{{ $item->subtitle }}</td>
+        <td>{{ $item->qty }}</td>
+        <td>{{ $item->totalPrice }}</td>
+    </tr>
+@endforeach
+
+<p>Total (with VAT): {{ Cart::total() }}</p>
+<p>Subtotal (ex-VAT): {{ Cart::subtotal() }}</p>
+<p>Total VAT: {{ Cart::vat() }}</p>
+```
+
+---
+
+## Configuration
+
+Publish the config file with `php artisan vendor:publish --tag=cart-config` before changing these values.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `database.connection` | `string\|null` | `null` | Database connection name. `null` uses the application default. |
+| `database.table` | `string` | `'cart'` | Table name for stored carts. |
+| `destroy_on_logout` | `bool` | `false` | When `true`, all cart instances are destroyed when the user logs out. |
+| `format.decimals` | `int` | `2` | Number of decimal places for formatted output. |
+| `format.decimal_point` | `string` | `'.'` | Decimal point character. |
+| `format.thousand_separator` | `string` | `','` | Thousand separator character. |
+| `global_coupons_enabled` | `bool` | `true` | Enable the cart-wide coupon system (`addGlobalCoupon` / `globalCouponDiscount`). |
+| `coupon_class` | `string` | `CartCoupon::class` | Class used to represent coupon objects. |
+| `use_legacy_events` | `bool` | `true` | When `true`, string events (`cart.added`, etc.) are dispatched alongside typed event objects. Set to `false` to dispatch only typed events. |
+| `rounding_mode` | `int` | `PHP_ROUND_HALF_UP` | Rounding mode used by `vatBreakdown()`. Any `PHP_ROUND_*` constant is accepted. |
+
+---
+
+## CartItem Reference
+
+Every `Cart::add()` call returns a `CartItem` instance. The following properties are available:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `rowId` | `string` | MD5 hash derived from `$id` + serialized `$options`. Two items with the same `id` but different `options` produce different `rowId` values. |
+| `id` | `int\|string` | The product identifier passed to `add()`. |
+| `name` | `string` | Product name. |
+| `subtitle` | `string` | Product subtitle or short description. |
+| `qty` | `int` | Quantity. |
+| `price` | `float` | Unit price excluding VAT, after any coupons. |
+| `totalPrice` | `float` | Unit price including VAT, after any coupons. |
+| `vat` | `float` | VAT amount per unit, after any coupons. |
+| `vatRate` | `float` | VAT rate as a percentage (calculated: `100 × vat / price`). |
+| `vatLabel` | `string` | `'Iva Inclusa'` when VAT > 0, otherwise `'Esente Iva'`. |
+| `originalPrice` | `float` | Unit price excluding VAT before any coupons. |
+| `originalTotalPrice` | `float` | Unit price including VAT before any coupons. |
+| `originalVat` | `float` | VAT per unit before any coupons. |
+| `discountValue` | `float` | Total discount amount applied to this item across all coupons. |
+| `vatFcCode` | `string` | VAT nature code for fiscal receipts (e.g. Italian `N2`, `N4`). |
+| `productFcCode` | `string` | Product fiscal code for receipts. |
+| `urlImg` | `string` | Product image URL. |
+| `options` | `CartItemOptions` | Arrayable collection of custom options. Access as `$item->options->size`. |
+| `associatedModel` | `string\|null` | Fully-qualified class name of the associated Eloquent model. |
+| `model` | `Model\|null` | The associated Eloquent model instance (loaded via `find($id)` on access). |
+| `appliedCoupons` | `array` | Keyed array of coupons applied to this item. |
+| `priceTax` | `float` | `price + tax` (computed via `__get`). |
+| `subtotal` | `float` | `qty × price` (computed via `__get`). |
+| `total` | `float` | `qty × priceTax` (computed via `__get`). |
+| `tax` | `float` | `price × (taxRate / 100)` (computed via `__get`). |
+| `taxTotal` | `float` | `tax × qty` (computed via `__get`). |
+
+**How `rowId` works:** The `rowId` is computed as `md5($id . serialize(ksort($options)))`. Two cart items with `id = 5` but `options = ['color' => 'red']` and `options = ['color' => 'blue']` produce different `rowId` values and appear as separate rows. Use `options` intentionally to force separation of otherwise identical products.
+
+---
 
 ## Usage
 
-The Cart gives you the following methods to use:
-
 ### Cart::add()
 
-Adding an item to the cart is really simple, you just use the add() method, which accepts a variety of parameters.
-
-In its most basic form you can specify the id, name, quantity, price of the product you'd like to add to the cart.
-
-``` bash
-Cart::add('293ad', 'Product 1', 1, 9.99);
+```php
+Cart::add(
+    mixed $id,
+    mixed $name = null,
+    ?string $subtitle = null,
+    ?int $qty = null,
+    ?float $price = null,
+    ?float $totalPrice = null,
+    ?float $vat = null,
+    ?string $vatFcCode = '',
+    ?string $productFcCode = '',
+    ?string $urlImg = '',
+    array $options = []
+): array|CartItem
 ```
 
-As an optional fifth parameter you can pass it options, so you can add multiple items with the same id, but with (for instance) a different size.
+Adds one or more items to the cart. Returns a `CartItem` when a single item is added, or an `array` of `CartItem` when an array of items is passed.
 
-``` bash
-Cart::add('293ad', 'Product 1', 1, 9.99, ['size' => 'large']);
+**Adding a single item by attributes:**
+
+```php
+$item = Cart::add(
+    id: 1,
+    name: 'White Shirt',
+    subtitle: 'Size L',
+    qty: 1,
+    price: 19.67,
+    totalPrice: 24.00,
+    vat: 4.33,
+    vatFcCode: '',
+    productFcCode: '',
+    urlImg: 'https://example.com/shirt.jpg',
+    options: ['color' => 'white', 'size' => 'L']
+);
 ```
 
-**The `add()` method will return an CartItem instance of the item you just added to the cart**.
+**Adding a `Buyable` instance** (when `$id` implements `Buyable`, `$name` acts as the quantity):
 
-``` bash
-Cart::add(['id' => '293ad', 'name' => 'Product 1', 'qty' => 1, 'price' => 9.99, 'options' => ['size' => 'large']]);
+```php
+$product = Product::find(1); // implements Buyable
+
+$item = Cart::add($product, 2); // 2 = qty
 ```
 
-New in version 2 of the package is the possibility to work with the `Buyable` interface. 
-The way this works is that you have a model implement the `Buyable` interface, which will make 
-you implement a few methods so the package knows how to get the id, name and price from your 
-model. This way you can just pass the `add()` method a model and the quantity, and it will 
-automatically add it to the cart.
+**Adding multiple items at once:**
 
-**As an added bonus it will automatically associate the model with the CartItem**
-
-``` bash
-Cart::add($product, 1, ['size' => 'large']);
-```
-
-As an optional third parameter you can add options.
-
-``` bash
-Cart::add($product, 1, ['size' => 'large']);
-```
-
-Finally, you can also add multiple items to the cart at once. You can just pass the `add() 
-method an array of arrays, or an array of Buyables, and they will be added to the cart.
-
-**When adding multiple items to the cart, the `add()` method will return an array of CartItems.**
-
-``` bash
-Cart::add([
-  ['id' => '293ad', 'name' => 'Product 1', 'qty' => 1, 'price' => 10.00],
-  ['id' => '4832k', 'name' => 'Product 2', 'qty' => 1, 'price' => 10.00, 'options' => ['size' => 'large']]
+```php
+$items = Cart::add([
+    ['id' => 1, 'name' => 'Shirt', 'subtitle' => '', 'qty' => 1, 'price' => 19.67, 'totalPrice' => 24.00, 'vat' => 4.33],
+    ['id' => 2, 'name' => 'Jeans', 'subtitle' => '', 'qty' => 2, 'price' => 49.18, 'totalPrice' => 60.00, 'vat' => 10.82],
 ]);
-
-Cart::add([$product1, $product2]);
+// $items is an array of CartItem
 ```
+
+If an item with the same `rowId` already exists, the quantities are summed.
+
+---
 
 ### Cart::update()
 
-To update an item in the cart, you'll first need the rowId of the item. 
-Next you can use the `update()` method to update it.
-
-If you simply want to update the quantity, you'll pass the update method the rowId and 
-the new quantity:
-
-``` bash
-$rowId = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
-
-Cart::update($rowId, 2); // Will update the quantity
+```php
+Cart::update(string $rowId, mixed $qty): ?CartItem
 ```
 
-If you want to update more attributes of the item, you can either pass the update method an 
-array or a `Buyable` as the second parameter. This way you can update all information of the 
-item with the given rowId.
+Updates the cart item identified by `$rowId`. `$qty` accepts an integer, an associative array of attributes, or a `Buyable` instance. Returns `null` when the item is removed (qty ≤ 0).
 
-``` bash
-Cart::update($rowId, ['name' => 'Product 1']); // Will update the name
+```php
+// Update quantity
+Cart::update($item->rowId, 3);
 
-Cart::update($rowId, $product); // Will update the id, name and price
+// Update multiple attributes
+Cart::update($item->rowId, ['qty' => 3, 'price' => 15.00]);
+
+// Setting qty to 0 or negative removes the item
+Cart::update($item->rowId, 0); // returns null, item removed
 ```
+
+---
 
 ### Cart::remove()
 
-To remove an item for the cart, you'll again need the rowId. This rowId you simply pass to 
-the `remove()` method, and it will remove the item from the cart. If the Cart Item contains a 
-coupon it will be removed from the coupons array on cart object.
-    
-``` bash
-$rowId = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
-
-Cart::remove($rowId);
+```php
+Cart::remove(string $rowId): void
 ```
+
+Removes the item with the given `rowId` from the cart. All per-item coupons are silently detached before removal. Fires `cart.removed`.
+
+```php
+Cart::remove($item->rowId);
+```
+
+**Throws:** `InvalidRowIDException` if `$rowId` does not exist.
+
+---
 
 ### Cart::get()
 
-If you want to get an item from the cart using its rowId, you can simply call the `get()` 
-method on the cart and pass it the rowId.
-
-``` bash
-$rowId = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
-
-Cart::get($rowId);
+```php
+Cart::get(string $rowId): CartItem
 ```
+
+Returns the `CartItem` with the given `rowId`.
+
+```php
+$item = Cart::get('d8e4a45c...');
+echo $item->name;
+```
+
+**Throws:** `InvalidRowIDException` if `$rowId` does not exist.
+
+---
 
 ### Cart::content()
 
-Of course, you also want to get the carts content. This is where you'll use the `content` method. 
-This method will return a Collection of CartItems which you can iterate over and show the 
-content to your customers.
-
-``` bash
-Cart::content();
+```php
+Cart::content(): Collection<string, CartItem>
 ```
 
-This method will return the content of the current cart instance, if you want the content of 
-another instance, simply chain the calls.
+Returns all items in the current cart instance as a `Collection` keyed by `rowId`.
 
-``` bash
-Cart::instance('wishlist')->content();
-```
+```php
+$items = Cart::content();
 
-### Cart::destroy()
-
-If you want to completely remove the content of a cart, you can call the `destroy` method on 
-the cart. This will remove all CartItems from the cart for the current cart instance.
-
-``` bash
-Cart::destroy();
-```
-
-### Cart::total()
-
-The `total()` method can be used to get the calculated total of all items in the cart, given 
-there price and quantity.
-
-``` bash
-Cart::total();
-```
-
-The method will automatically format the result, which you can tweak using the three optional parameters.
-
-``` bash
-Cart::total($decimals, $decimalSeperator, $thousandSeperator);
-```
-
-You can set the default number format in the config file.
-
-**If you're not using the Facade, but use dependency injection in your (for instance) 
-Controller, you can also simply get the total property `$cart->total`**
-
-### Cart::vat()
-
-The `vat()` method can be used to get the calculated amount of vat for all items in the cart, 
-given there price and quantity.
-
-``` bash
-Cart::vat();
-```
-
-The method will automatically format the result, which you can tweak using the three optional parameters
-
-``` bash
-Cart::vat($decimals, $decimalSeperator, $thousandSeperator);
-```
-
-You can set the default number format in the config file.
-
-**If you're not using the Facade, but use dependency injection in your (for instance) 
-Controller, you can also simply get the tax property `$cart->vat`**
-
-### Cart::subtotal()
-
-The `subtotal()` method can be used to get the total of all items in the cart, minus the total amount of tax.
-
-``` bash
-Cart::subtotal();
-```
-
-The method will automatically format the result, which you can tweak using the three optional parameters
-
-``` bash
-Cart::subtotal($decimals, $decimalSeperator, $thousandSeperator);
-```
-
-You can set the default number format in the config file.
-
-**If you're not using the Facade, but use dependency injection in your (for instance) 
-Controller, you can also simply get the subtotal property `$cart->subtotal`**
-
-### Cart::count()
-
-If you want to know how many items there are in your cart, you can use the `count()` method. 
-This method will return the total number of items in the cart. So if you've added 2 books and 
-1 shirt, it will return 3 items.
-
-``` bash
-Cart::count();
-``` 
-
-### Cart::search()
-
-To find an item in the cart, you can use the `search()` method.
-
-**This method was changed on version 2**
-
-Behind the scenes, the method simply uses the filter method of the Laravel Collection class. 
-This means you must pass it a Closure in which you'll specify you search terms.
-
-If you for instance want to find all items with an id of 1:
-
-``` bash
-$cart->search(function ($cartItem, $rowId) {
-	return $cartItem->id === 1;
-});
-```
-
-As you can see the Closure will receive two parameters. The first is the CartItem to perform 
-the check against. The second parameter is the rowId of this CartItem.
-
-**The method will return a Collection containing all CartItems that where found**
-
-This way of searching gives you total control over the search process and gives you the 
-ability to create very precise and specific searches.
-
-## Collections
-
-On multiple instances the Cart will return to you a Collection. 
-This is just a simple Laravel Collection, so all methods you can call on a Laravel Collection 
-are also available on the result.
-
-As an example, you can quickly get the number of unique products in a cart:
-
-``` bash
-Cart::content()->count();
-```
-
-Or you can group the content by the id of the products:
-
-``` bash
-Cart::content()->groupBy('id');
-```
-
-## Instances
-
-The package supports multiple instances of the cart. The way this works is like this:
-
-You can set the current instance of the cart by calling `Cart::instance('newInstance')`. 
-From this moment, the active instance of the cart will be `newInstance`, so when you add, 
-remove or get the content of the cart, you're work with the `newInstance` instance of the cart. 
-If you want to switch instances, you just call `Cart::instance('otherInstance')` again, and you're
-working with the `otherInstance` again.
-
-So a little example:
-
-``` bash
-Cart::instance('shopping')->add('192ao12', 'Product 1', 1, 9.99);
-
-// Get the content of the 'shopping' cart
-Cart::content();
-
-Cart::instance('wishlist')->add('sdjk922', 'Product 2', 1, 19.95, ['size' => 'medium']);
-
-// Get the content of the 'wishlist' cart
-Cart::content();
-
-// If you want to get the content of the 'shopping' cart again
-Cart::instance('shopping')->content();
-
-// And the count of the 'wishlist' cart again
-Cart::instance('wishlist')->count();
-```
-
-**N.B. Keep in mind that the cart stays in the last set instance for as long as you don't 
-set a different one during script execution**.
-
-**N.B.2 The default cart instance is called `default`, so when you're not using instances,
-`Cart::content(); is the same as `Cart::instance('default')->content()`**.
-
-## Models
-
-Because it can be very convenient to be able to directly access a model from a CartItem 
-is it possible to associate a model with the items in the cart. Let's say you have a 
-`Product` model in your application. With the `associate()` method, you can tell the cart 
-that an item in the cart, is associated to the `Product` model.
-
-That way you can access your model right from the `CartItem`!
-
-The model can be accessed via the `model` property on the CartItem.
-
-**If your model implements the `Buyable` interface, and you used your model to add the 
-item to the cart, it will associate automatically**.
-
-Here is an example:
-
-``` bash
-$product = Product::find(1);
-
-// First we'll add the item to the cart.
-$cartItem = Cart::add('293ad', 'Product 1', 1, 9.99, ['size' => 'large']);
-
-// Next we associate a model with the item.
-Cart::associate($cartItem->rowId, $product);
-
-// Or even easier, call the associate method on the CartItem!
-$cartItem->associate($product);
-
-// You can even make it a one-liner
-Cart::add('293ad', 'Product 1', 1, 9.99, ['size' => 'large'])->associate($product);
-
-// Now, when iterating over the content of the cart, you can access the model.
-foreach(Cart::content() as $row) {
-	echo 'You have ' . $row->qty . ' items of ' . $row->model->name . ' with description: "' . $row->model->description . '" in your cart.';
+foreach ($items as $rowId => $item) {
+    echo "{$item->name}: {$item->qty} × {$item->totalPrice}";
 }
 ```
 
-## Database
+---
 
-- [Config](#config)
-- [Storing the cart](#storing-the-cart)
-- [Restoring the cart](#restoring-the-cart)
+### Cart::destroy()
 
-### Configuration
-
-To save cart into the database, so you can retrieve it later, the package needs to know which 
-database connection to use and what the name of the table is. By default, the package will use 
-the default database connection and use a table named `cart`. If you want to change these options, 
-you'll have to publish the `config` file.
-
-``` bash
-php artisan vendor:publish --provider="OfflineAgency\LaravelCart\CartServiceProvider" --tag="config"
+```php
+Cart::destroy(): void
 ```
 
-This will give you a cart.php config file in which you can make the changes.
+Removes all items, clears global coupons, and removes cart options from the session.
 
-To make your life easy, the package also includes a ready to use migration which you can 
-publish by running:
+```php
+// After successful checkout
+Cart::destroy();
 
-``` bash
-php artisan vendor:publish --provider="OfflineAgency\LaravelCart\CartServiceProvider" --tag="migrations"
+// For a specific instance
+Cart::instance('wishlist')->destroy();
 ```
 
-This will place a `cart` table's migration file into `database/migrations` directory. Now all you 
-have to do is run `php artisan migrate` to migrate your database.
+---
 
-### Storing the cart
+### Cart::total()
 
-To store your cart instance into the database, you have to call the `store($identifier)` method. 
-Where `$identifier is a random key, for instance the id or username of the user.
-
-``` bash
-Cart::store('username');
-
-// To store a cart instance named 'wishlist'
-Cart::instance('wishlist')->store('username');
+```php
+Cart::total(
+    ?int $decimals = null,
+    ?string $decimalPoint = null,
+    ?string $thousandSeparator = null
+): float
 ```
 
-### Restoring the cart
+Returns the cart total including VAT, after all item-level coupons. Falls back to `config('cart.format.*')` values when parameters are `null`. The result is never negative (returns `0` if coupons exceed the total).
 
-If you want to retrieve the cart from the database and restore it, all you have to do is call 
-the `restore($identifier)` where `$identifier` is the key you specified for the `store` method.
-
-``` bash
-Cart::restore('username');
-
-// To restore a cart instance named 'wishlist'
-Cart::instance('wishlist')->restore('username');
+```php
+$total = Cart::total();         // e.g. 88.00
+$formatted = Cart::total(2, '.', ','); // uses explicit format
 ```
 
-### Add a coupon to cart instance for a specific cart item
+The magic property `$cart->total` is available when the `Cart` object is resolved via dependency injection (not the Facade).
 
-``` bash
-// First we'll add the item to the cart.
-$cartItem = Cart::add('293ad', 'Product 1', 1, 9.99, ['size' => 'large']);
+---
 
-Cart::addCoupon('07d5da5550494c62daf9993cf954303f', 'BLACK_FRIDAY_2021','fixed', 100);
+### Cart::subtotal()
+
+```php
+Cart::subtotal(
+    ?int $decimals = null,
+    ?string $decimalPoint = null,
+    ?string $thousandSeparator = null
+): float
 ```
 
-## Exceptions
+Returns the sum of all item `price` values (excluding VAT). Discount cart items are excluded from the subtotal calculation.
 
-The Cart package will throw exceptions if something goes wrong. This way it's easier to debug 
-your code using the Cart package or to handle the error based on the type of exceptions. 
-The Cart packages can throw the following exceptions:
+```php
+$subtotal = Cart::subtotal(); // e.g. 72.13
+```
 
-|Exception|Reason|
-|---------|------|
-|*CartAlreadyStoredException*|When trying to store a cart that was already stored using the specified identifier|
-|*InvalidRowIDException*|When the rowId that got passed doesn't exists in the current cart instance|
-|*UnknownModelException*|When you try to associate an none existing model to a CartItem.|
+---
+
+### Cart::vat()
+
+```php
+Cart::vat(
+    ?int $decimals = null,
+    ?string $decimalPoint = null,
+    ?string $thousandSeparator = null
+): float
+```
+
+Returns the total VAT amount across all items in the cart.
+
+```php
+$totalVat = Cart::vat(); // e.g. 15.87
+```
+
+`Cart::totalVatLabel()` returns `'Iva Inclusa'` when any VAT is present, or `'Esente Iva'` when total VAT is zero.
+
+---
+
+### Cart::count()
+
+```php
+Cart::count(): int|float
+```
+
+Returns the sum of all item quantities (not the number of distinct rows).
+
+```php
+// Cart has 2 × Shirt and 3 × Jeans
+Cart::count(); // 5
+```
+
+---
+
+### Cart::search()
+
+```php
+Cart::search(Closure $search): Collection<string, CartItem>
+```
+
+Filters cart content using a closure. Returns a `Collection` of matching `CartItem` instances.
+
+```php
+// Find items by product id
+$found = Cart::search(fn (CartItem $item) => $item->id === 42);
+
+// Find items with a specific option value
+$redItems = Cart::search(fn (CartItem $item) => $item->options->color === 'red');
+
+// Find by name (case-insensitive)
+$shirts = Cart::search(fn (CartItem $item) => str_contains(strtolower($item->name), 'shirt'));
+```
+
+---
+
+### Utility Methods
+
+```php
+Cart::isEmpty(): bool
+Cart::isNotEmpty(): bool
+Cart::uniqueCount(): int                          // number of distinct rows (not sum of qty)
+Cart::first(?Closure $callback = null): ?CartItem // first item, or first matching a closure
+Cart::where(string $key, mixed $value): Collection<string, CartItem>
+```
+
+```php
+if (Cart::isEmpty()) {
+    return redirect()->route('shop');
+}
+
+$itemCount = Cart::uniqueCount(); // 2 rows even if total qty is 5
+
+$first = Cart::first();
+$shirt = Cart::first(fn (CartItem $item) => $item->id === 42);
+
+$redItems = Cart::where('options.color', 'red');
+```
+
+---
+
+### Cart::addBatch()
+
+```php
+Cart::addBatch(array $items): Collection<string, CartItem>
+```
+
+Adds multiple items from an array and returns the updated cart content.
+
+```php
+Cart::addBatch([
+    ['id' => 1, 'name' => 'Shirt',  'subtitle' => '', 'qty' => 1, 'price' => 19.67, 'totalPrice' => 24.00, 'vat' => 4.33],
+    ['id' => 2, 'name' => 'Jeans',  'subtitle' => '', 'qty' => 1, 'price' => 49.18, 'totalPrice' => 60.00, 'vat' => 10.82],
+]);
+```
+
+---
+
+### Cart::sync()
+
+```php
+Cart::sync(array $items): static
+```
+
+Synchronises the cart with the given items array. Items in the cart that are absent from `$items` are removed. Items in `$items` that are absent from the cart are added. Items present in both are updated to the quantity from `$items`.
+
+```php
+Cart::sync([
+    ['id' => 1, 'name' => 'Shirt', 'subtitle' => '', 'qty' => 3, 'price' => 19.67, 'totalPrice' => 24.00, 'vat' => 4.33],
+    // id 2 is absent → removed from cart if it was there
+]);
+```
+
+---
+
+### Cart::associate()
+
+```php
+Cart::associate(string $rowId, mixed $model): void
+```
+
+Associates the cart item with an Eloquent model. After calling this, `$item->model` returns the model instance via `find($item->id)`.
+
+```php
+Cart::associate($item->rowId, \App\Models\Product::class);
+
+$product = Cart::get($item->rowId)->model; // triggers Product::find($item->id)
+```
+
+**Throws:** `UnknownModelException` when a string class name is passed that does not exist.
+
+---
+
+### Cart::numberFormat()
+
+```php
+Cart::numberFormat(
+    float|int $value,
+    ?int $decimals,
+    ?string $decimalPoint,
+    ?string $thousandSeparator
+): string
+```
+
+Formats a number using the cart's configured (or provided) format settings.
+
+```php
+echo Cart::numberFormat(1234.5, 2, '.', ','); // "1,234.50"
+```
+
+---
+
+## Instances
+
+The cart supports multiple named instances, each stored independently in the session.
+
+```php
+Cart::instance(?string $instance = null): Cart
+Cart::currentInstance(): string
+```
+
+The default instance name is `'default'`. Switch instances with `Cart::instance()`. The call is fluent, so you can chain operations.
+
+```php
+// Work with a wishlist alongside the main cart
+Cart::instance('wishlist')->add(5, 'Gift Item', '', 1, 30.00, 36.60, 6.60);
+
+Cart::instance('shopping')->add(7, 'Daily Use', '', 2, 10.00, 12.20, 2.20);
+
+// Restore to default
+Cart::instance(); // back to 'default'
+
+echo Cart::instance('wishlist')->currentInstance(); // 'wishlist'
+```
+
+---
+
+## The Buyable Interface
+
+Any class can be passed directly to `Cart::add()` by implementing `OfflineAgency\LaravelCart\Contracts\Buyable`:
+
+```php
+namespace OfflineAgency\LaravelCart\Contracts;
+
+interface Buyable
+{
+    public function getId(): int|string;
+    public function setId(int|string $id): void;
+
+    public function getName(): string;
+    public function setName(string $name): void;
+
+    public function getSubtitle(): string;
+    public function setSubtitle(string $subtitle): void;
+
+    public function getQty(): int;
+    public function setQty(int $qty): void;
+
+    public function getPrice(): float;
+    public function setPrice(float $price): void;
+
+    public function getTotalPrice(): float;
+    public function setTotalPrice(float $totalPrice): void;
+
+    public function getVat(): float;
+    public function setVat(float $vat): void;
+
+    public function getVatFcCode(): string;
+    public function setVatFcCode(string $vatFcCode): void;
+
+    public function getProductFcCode(): string;
+    public function setProductFcCode(string $productFcCode): void;
+
+    public function getUrlImg(): string;
+    public function setUrlImg(mixed $urlImg): void;
+
+    public function getOptions(): array;
+    public function setOptions(array $options): void;
+}
+```
+
+**Complete `Product` model example:**
+
+```php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use OfflineAgency\LaravelCart\Contracts\Buyable;
+
+class Product extends Model implements Buyable
+{
+    protected $fillable = [
+        'name', 'subtitle', 'price', 'total_price', 'vat',
+        'vat_fc_code', 'product_fc_code', 'url_img',
+    ];
+
+    public function getId(): int|string { return $this->id; }
+    public function setId(int|string $id): void { $this->id = $id; }
+
+    public function getName(): string { return $this->name; }
+    public function setName(string $name): void { $this->name = $name; }
+
+    public function getSubtitle(): string { return $this->subtitle ?? ''; }
+    public function setSubtitle(string $subtitle): void { $this->subtitle = $subtitle; }
+
+    public function getQty(): int { return 1; }
+    public function setQty(int $qty): void {}
+
+    public function getPrice(): float { return (float) $this->price; }
+    public function setPrice(float $price): void { $this->price = $price; }
+
+    public function getTotalPrice(): float { return (float) $this->total_price; }
+    public function setTotalPrice(float $totalPrice): void { $this->total_price = $totalPrice; }
+
+    public function getVat(): float { return (float) $this->vat; }
+    public function setVat(float $vat): void { $this->vat = $vat; }
+
+    public function getVatFcCode(): string { return $this->vat_fc_code ?? ''; }
+    public function setVatFcCode(string $vatFcCode): void { $this->vat_fc_code = $vatFcCode; }
+
+    public function getProductFcCode(): string { return $this->product_fc_code ?? ''; }
+    public function setProductFcCode(string $productFcCode): void { $this->product_fc_code = $productFcCode; }
+
+    public function getUrlImg(): string { return $this->url_img ?? ''; }
+    public function setUrlImg(mixed $urlImg): void { $this->url_img = $urlImg; }
+
+    public function getOptions(): array { return []; }
+    public function setOptions(array $options): void {}
+}
+```
+
+**Auto-association:** When `Cart::add($product, $qty)` receives a `Buyable`, the cart automatically calls `associate()` on the resulting `CartItem`. Accessing `$item->model` later returns a fresh `Product::find($item->id)` instance.
+
+**Using the `CanBeBought` trait:** For models with standard property names (`id`, `name`, `title`, `description`, `price`), the `CanBeBought` trait provides default implementations of `getId()`, `getName()`/`getSubtitle()`/`getDescription()`, and `getPrice()`:
+
+```php
+use OfflineAgency\LaravelCart\CanBeBought;
+use OfflineAgency\LaravelCart\Contracts\Buyable;
+
+class SimpleProduct extends Model implements Buyable
+{
+    use CanBeBought;
+
+    // Only implement the remaining methods not covered by the trait
+    public function getSubtitle(): string { return ''; }
+    // ... etc.
+}
+```
+
+---
+
+## Model Association
+
+Associate a cart item with an Eloquent model after it has been added:
+
+```php
+$item = Cart::add(42, 'Shirt', '', 1, 19.67, 24.00, 4.33);
+
+Cart::associate($item->rowId, \App\Models\Product::class);
+```
+
+After association, accessing `$item->model` triggers `Product::find($item->id)` and returns the model. The association stores only the class name in the session; the model is not serialized.
+
+```php
+$item = Cart::get($rowId);
+$product = $item->model; // App\Models\Product instance, or null if not found
+```
+
+**Throws:** `UnknownModelException` when the supplied string class name does not exist.
+
+---
+
+## Coupons
+
+The package supports two distinct coupon systems: **item-level coupons** that reduce the price of a specific cart item, and **cart-level (global) coupons** that are calculated against the cart total.
+
+### Item-Level Coupons
+
+```php
+// Preferred non-deprecated alias (v4.1+)
+Cart::addItemCoupon(
+    mixed $rowId,
+    string $couponCode,
+    string $couponType,  // 'fixed' or 'percentage'
+    float $couponValue
+): void
+
+// Kept for backward compatibility — deprecated since 4.1
+Cart::applyCoupon(mixed $rowId, string $couponCode, string $couponType, float $couponValue): void
+```
+
+Apply a coupon to a specific item. The `rowId` must be a valid cart item row.
+
+```php
+// Add an item first to obtain the rowId
+$item = Cart::add(1, 'Shirt', '', 2, 19.67, 24.00, 4.33);
+
+// Apply a fixed €5 discount
+Cart::addItemCoupon($item->rowId, 'SAVE5', 'fixed', 5.00);
+
+// Or apply a 10% discount
+Cart::addItemCoupon($item->rowId, 'PROMO10', 'percentage', 10.0);
+```
+
+**Discount calculation:**
+- `'fixed'`: deducts `$couponValue` from `totalPrice`, then back-calculates `price` and `vat`
+- `'percentage'`: deducts `($couponValue / 100) × originalTotalPrice` from `totalPrice`, then back-calculates `price` and `vat`
+
+Multiple coupons can be applied to the same item. Each subsequent coupon operates on the already-reduced `totalPrice`.
+
+**Removing item-level coupons:**
+
+```php
+// Remove one coupon from a specific item
+Cart::detachCoupon($item->rowId, 'SAVE5');
+
+// Remove a coupon by code, searching all items
+Cart::removeCoupon('SAVE5');  // throws InvalidCouponHashException if not found
+
+// Remove all per-item coupons from the entire cart
+Cart::removeAllCoupons();
+```
+
+**Querying item-level coupons:**
+
+```php
+// Check whether any per-item coupon exists
+Cart::hasCoupons(); // bool
+
+// Check for a specific coupon code
+Cart::hasCoupon('SAVE5'); // bool
+
+// Retrieve a specific coupon object
+$coupon = Cart::getCoupon('SAVE5');
+
+// Get all per-item coupons as a raw array
+$raw = Cart::coupons(); // array<string, object>
+
+// Get all per-item coupons as CartCoupon instances
+$coupons = Cart::getCoupons(); // Collection<string, CartCoupon>
+```
+
+---
+
+### Cart-Level (Global) Coupons
+
+Global coupons apply a discount to the cart total and are calculated separately from item prices. Two APIs exist: the **new `addCoupon()` API** (v4.1+, recommended) and the **legacy `addGlobalCoupon()` API** (still supported).
+
+#### New API (v4.1+)
+
+```php
+// Add a CartCoupon object (full validation: expiry, minCartAmount)
+Cart::addCoupon(string|CartCoupon|Couponable $coupon): static
+
+// Remove by hash or coupon code
+Cart::removeCartCoupon(string $hashOrCode): static
+
+// Query
+Cart::listCoupons(): Collection          // all cart-level coupons
+Cart::hasCartCoupon(string $hashOrCode): bool
+Cart::discount(): float                  // total discount amount from all coupons
+Cart::syncCoupons(): array               // re-validate; returns removed coupon codes
+```
+
+```php
+use Carbon\Carbon;
+use OfflineAgency\LaravelCart\CartCoupon;
+use OfflineAgency\LaravelCart\Exceptions\CouponAlreadyAppliedException;
+use OfflineAgency\LaravelCart\Exceptions\InvalidCouponException;
+
+$coupon = new CartCoupon(
+    hash: 'promo-2025',
+    code: 'SUMMER25',
+    type: 'percentage',
+    value: 25.0,
+    isGlobal: true,
+    expiresAt: Carbon::parse('2025-08-31'),
+    minCartAmount: 50.0,
+);
+
+try {
+    Cart::addCoupon($coupon);   // validates expiry and minCartAmount
+} catch (InvalidCouponException $e) {
+    // coupon expired or cart total is below minCartAmount
+} catch (CouponAlreadyAppliedException $e) {
+    // same hash already in the cart
+}
+
+Cart::discount();                   // e.g. 25.00 (25% of 100.00)
+Cart::total();                      // deducted automatically: 75.00
+
+Cart::removeCartCoupon('SUMMER25'); // remove by code or hash
+```
+
+`Cart::total()` automatically deducts cart-level coupon discounts. You do not need to subtract manually.
+
+#### Legacy API
+
+```php
+Cart::addGlobalCoupon(
+    string $couponHash,
+    string $code,
+    string $type,       // 'percentage' | 'fixed'
+    float|int $value
+): static
+```
+
+```php
+// Add a 10% cart-wide coupon
+Cart::addGlobalCoupon('hash-abc', 'CART10', 'percentage', 10.0);
+
+// Add a fixed €20 discount
+Cart::addGlobalCoupon('hash-xyz', 'FLAT20', 'fixed', 20.0);
+```
+
+Global coupons persist in the session alongside cart items. Use `$couponHash` (any unique string) as the key to remove a specific coupon later.
+
+**Managing legacy global coupons:**
+
+```php
+// Remove one global coupon by hash
+Cart::removeGlobalCoupon('hash-abc');  // throws InvalidCouponHashException if not found
+
+// Get all global coupons
+$globals = Cart::getGlobalCoupons(); // Collection<string, CartCoupon>
+
+// Calculate the total discount from all global coupons
+$cartTotal = (string) Cart::total(); // e.g. '100.00'
+$discount  = Cart::globalCouponDiscount($cartTotal); // e.g. '30.00'
+
+$finalTotal = (float) $cartTotal - (float) $discount;
+```
+
+---
+
+### How Discounts Are Calculated
+
+**Item-level (`'fixed'`):** The fixed value is subtracted from `totalPrice`. `price` and `vat` are back-calculated from the new `totalPrice` using the item's `vatRate`. The item's `discountValue` accumulates each coupon's contribution.
+
+**Item-level (`'percentage'`):** The discount is `($value / 100) × originalTotalPrice`. The result is subtracted from the current `totalPrice` (not `originalTotalPrice`), so stacked percentage coupons compound.
+
+**Global coupons — ordering:** `globalCouponDiscount()` sorts coupons so percentage coupons apply first, then fixed coupons, regardless of insertion order.
+
+**Global coupon cap:** Fixed global coupons are capped at the remaining total. The discount never drives the total below zero.
+
+**Worked numeric example:**
+
+```text
+Cart::total() = 100.00
+
+Global coupon 1: 10% percentage
+  discount = 100.00 × 10 / 100 = 10.00
+  remaining = 90.00
+
+Global coupon 2: fixed 20.00
+  discount = min(20.00, 90.00) = 20.00
+  remaining = 70.00
+
+Cart::globalCouponDiscount('100.00') → '30.00'
+final total = 100.00 - 30.00 = 70.00
+```
+
+---
+
+### CartCoupon Reference
+
+Both item-level and global coupons are represented as `CartCoupon` objects:
+
+```php
+final readonly class CartCoupon implements Couponable, JsonSerializable
+{
+    public function __construct(
+        public string   $hash,
+        public string   $code,
+        public string   $type,             // 'fixed' | 'percentage'
+        public float    $value,
+        public bool     $isGlobal = false,
+        public ?Carbon  $expiresAt = null, // null = never expires
+        public ?int     $usageLimit = null,
+        public ?float   $minCartAmount = null,
+    ) {}
+
+    public function isPercentage(): bool;
+    public function isFixed(): bool;
+    public function couponType(): CouponType;   // bridge to CouponType enum
+    public function isExpired(): bool;          // true when expiresAt is in the past
+    public function isApplicableTo(float $cartTotal): bool; // checks minCartAmount
+    public function toArray(): array;
+    public function jsonSerialize(): array;
+}
+```
+
+Because `CartCoupon` is `final readonly`, all properties are immutable after construction.
+
+**Creating a coupon with constraints:**
+
+```php
+use Carbon\Carbon;
+use OfflineAgency\LaravelCart\CartCoupon;
+
+$coupon = new CartCoupon(
+    hash: 'promo-2025',
+    code: 'SUMMER25',
+    type: 'percentage',
+    value: 25.0,
+    isGlobal: true,
+    expiresAt: Carbon::parse('2025-08-31'),
+    minCartAmount: 50.0,
+);
+
+$coupon->isExpired();            // false (before expiry)
+$coupon->isApplicableTo(49.99); // false (below minCartAmount)
+$coupon->isApplicableTo(50.00); // true
+```
+
+---
+
+## Fiscal Support (VAT)
+
+The package is designed for VAT-inclusive pricing as used in Italian fiscal receipts.
+
+**VAT is passed as an amount, not a rate.** When adding an item with `price = 19.67`, `totalPrice = 24.00`, and `vat = 4.33`, the cart stores all three values and derives `vatRate = 22%` automatically.
+
+```php
+// Adding a 22% VAT item
+Cart::add(
+    id: 1,
+    name: 'Product A',
+    subtitle: '',
+    qty: 1,
+    price: 19.67,       // ex-VAT unit price
+    totalPrice: 24.00,  // VAT-inclusive unit price
+    vat: 4.33,          // VAT amount
+    vatFcCode: '',       // VAT nature code (e.g. 'N4' for exempt)
+    productFcCode: '',   // product fiscal code
+);
+```
+
+**Per-item fiscal properties:**
+
+| Property | Description |
+|----------|-------------|
+| `vatRate` | Calculated: `100 × vat / price` |
+| `vatLabel` | `'Iva Inclusa'` when `vat > 0`, else `'Esente Iva'` |
+| `vatFcCode` | VAT nature code for the fiscal document |
+| `productFcCode` | Product fiscal code |
+
+**Cart-level totals:**
+
+```php
+Cart::total();         // sum of all item totalPrice × qty, minus cart-level coupon discounts
+Cart::subtotal();      // sum of all item price × qty (ex-VAT)
+Cart::vat();           // sum of all item vat × qty
+Cart::totalVatLabel(); // 'Iva Inclusa' or 'Esente Iva'
+```
+
+**VAT breakdown for fiscal receipts:**
+
+```php
+Cart::vatBreakdown(): Collection<int, array{rate: float, net: string, vat: string, gross: string}>
+```
+
+Groups all cart items by their effective VAT rate and returns formatted totals per rate, suitable for printing on fiscal receipts.
+
+```php
+$breakdown = Cart::vatBreakdown();
+
+// Example output for a cart with 22% and 10% VAT items:
+// [
+//   ['rate' => 22.0, 'net' => '100.00', 'vat' => '22.00', 'gross' => '122.00'],
+//   ['rate' => 10.0, 'net' =>  '50.00', 'vat' =>  '5.00', 'gross' =>  '55.00'],
+// ]
+
+foreach ($breakdown as $row) {
+    echo "VAT {$row['rate']}%: net {$row['net']}, vat {$row['vat']}, gross {$row['gross']}";
+}
+```
+
+Phantom discount items (added via `applyGlobalCoupon`) are excluded from the breakdown. Rounding is controlled by `config('cart.rounding_mode')`.
+
+**Per-item tax rate override:**
+
+Pass `tax_rate` in the `options` array to override the calculated VAT rate for a specific item. Useful when different products carry different VAT rates within the same cart.
+
+```php
+// Item where price is net (ex-VAT) and tax_rate applies
+Cart::add(
+    id: 2,
+    name: 'Reduced-rate Item',
+    subtitle: '',
+    qty: 1,
+    price: 100.0,
+    totalPrice: 100.0,  // will be recalculated from tax_rate
+    vat: 0.0,
+    options: ['tax_rate' => 10.0],  // overrides VAT rate to 10%
+);
+// resulting item: vatRate=10.0, vat=10.0, totalPrice=110.0
+```
+
+---
+
+## Database Persistence
+
+### Storing the Cart
+
+```php
+Cart::store(mixed $identifier): void
+```
+
+Serializes the current cart instance to the database table defined in `config('cart.database.table')`.
+
+```php
+Cart::store(auth()->id());
+```
+
+**Throws:** `CartAlreadyStoredException` if a cart with the same identifier is already in the table.
+
+### Restoring the Cart
+
+```php
+Cart::restore(mixed $identifier, bool $mergeOnRestore = false): void
+```
+
+Loads a stored cart from the database and deletes the database row. Returns silently if the identifier does not exist.
+
+- **`$mergeOnRestore = false` (default):** Replaces the current session cart with the stored cart.
+- **`$mergeOnRestore = true`:** Merges the stored cart into the current session cart. Items already present (same `rowId`) are kept as-is; only new rows are added.
+
+Cart-level coupons stored with the cart are automatically restored.
+
+```php
+// Replace current cart with stored cart
+Cart::restore(auth()->id());
+
+// Merge stored cart into current session cart
+Cart::restore(auth()->id(), mergeOnRestore: true);
+```
+
+### Migrations
+
+Publish and run the package migrations before using `store()` and `restore()`:
+
+```bash
+php artisan vendor:publish --tag=cart-migrations
+php artisan migrate
+```
+
+The migration creates the table specified in `config('cart.database.table')` (default: `cart`).
+
+---
 
 ## Events
 
-The cart also has events build in. There are five events available for you to listen for.
+The package dispatches both **typed event objects** and **legacy string events**. By default both are dispatched (`use_legacy_events = true`). Set `use_legacy_events = false` in config to dispatch only typed events.
 
-|Event|Fired|Parameter|
-|-----|-----|---------|
-|cart.added|When an item was added to the cart.|The `CartItem` that was added.|
-|cart.updated|When an item in the cart was updated.|The `CartItem` that was updated.|
-|cart.removed|When an item is removed from the cart.|The `CartItem` that was removed.|
-|cart.stored|When the content of a cart was stored.|-|
-|cart.restored|When the content of a cart was restored.|-|
+### Typed Events
 
-## Example
+| Class | Fired when | Properties |
+|---|---|---|
+| `CartItemAdded` | An item is added | `CartItem $cartItem` |
+| `CartItemUpdated` | An item is updated | `CartItem $cartItem` |
+| `CartItemRemoved` | An item is removed | `CartItem $cartItem` |
+| `CartStored` | The cart is stored to the database | `mixed $identifier`, `string $instance` |
+| `CartRestored` | The cart is restored from the database | `mixed $identifier`, `string $instance` |
+| `CouponApplied` | A coupon is added via `addCoupon()` | `CartCoupon $coupon`, `string $cartInstance` |
+| `CouponRemoved` | A coupon is removed via `removeCartCoupon()` | `CartCoupon $coupon`, `string $cartInstance` |
 
-Below is a little example of how to list the cart content in a table:
+All typed events are `final readonly` classes in `OfflineAgency\LaravelCart\Events\`.
 
-``` bash
+### Legacy String Events
 
-// Add some items in your Controller.
-Cart::add('192ao12', 'Product 1', 1, 9.99);
-Cart::add('1239ad0', 'Product 2', 2, 5.95, ['size' => 'large']);
+| Event string | Fired when | Listener receives |
+|---|---|---|
+| `cart.added` | An item is added | `CartItem $item` |
+| `cart.updated` | An item is updated | `CartItem $item` |
+| `cart.removed` | An item is removed | `CartItem $item` |
+| `cart.stored` | The cart is stored | _(nothing)_ |
+| `cart.restored` | The cart is restored | _(nothing)_ |
+| `cart.coupon_removed` | A per-item coupon is removed via `removeCoupon()` | `string $couponCode` |
+| `cart.coupons_cleared` | All per-item coupons removed via `removeAllCoupons()` | _(nothing)_ |
+| `cart.global_coupon_added` | A global coupon is added via `addGlobalCoupon()` | `CartCoupon $coupon` |
+| `cart.global_coupon_removed` | A global coupon is removed via `removeGlobalCoupon()` | `CartCoupon $coupon` |
 
-// Display the content in a View.
-<table>
-   	<thead>
-       	<tr>
-           	<th>Product</th>
-           	<th>Qty</th>
-           	<th>Price</th>
-           	<th>Subtotal</th>
-       	</tr>
-   	</thead>
+**Listening to typed events:**
 
-   	<tbody>
+```php
+use OfflineAgency\LaravelCart\Events\CartItemAdded;
+use OfflineAgency\LaravelCart\Events\CouponApplied;
 
-   		<?php foreach(Cart::content() as $row) :?>
-
-       		<tr>
-           		<td>
-               		<p><strong><?php echo $row->name; ?></strong></p>
-               		<p><?php echo ($row->options->has('size') ? $row->options->size : ''); ?></p>
-           		</td>
-           		<td><input type="text" value="<?php echo $row->qty; ?>"></td>
-           		<td>$<?php echo $row->price; ?></td>
-           		<td>$<?php echo $row->total; ?></td>
-       		</tr>
-
-	   	<?php endforeach;?>
-
-   	</tbody>
-   	
-   	<tfoot>
-   		<tr>
-   			<td colspan="2">&nbsp;</td>
-   			<td>Subtotal</td>
-   			<td><?php echo Cart::subtotal(); ?></td>
-   		</tr>
-   		<tr>
-   			<td colspan="2">&nbsp;</td>
-   			<td>Tax</td>
-   			<td><?php echo Cart::vat(); ?></td>
-   		</tr>
-   		<tr>
-   			<td colspan="2">&nbsp;</td>
-   			<td>Total</td>
-   			<td><?php echo Cart::total(); ?></td>
-   		</tr>
-   	</tfoot>
-</table>
+// In EventServiceProvider or using #[AsEventListener]
+protected $listen = [
+    CartItemAdded::class => [
+        \App\Listeners\UpdateCartCountCache::class,
+    ],
+    CouponApplied::class => [
+        \App\Listeners\LogCouponUsage::class,
+    ],
+    // legacy string events still work when use_legacy_events = true
+    'cart.added' => [
+        \App\Listeners\LegacyListener::class,
+    ],
+];
 ```
 
-## Testing 
+**Disabling legacy string events:**
 
-Run the tests with:
-
-``` bash
-composer test
+```php
+// config/cart.php
+'use_legacy_events' => false,  // only typed events are dispatched
 ```
+
+**Logout handling:** When `destroy_on_logout = true` in config, the service provider listens to `Illuminate\Auth\Events\Logout` and calls `Cart::instance()->destroy()` automatically.
+
+---
+
+## Exceptions
+
+### `InvalidRowIDException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\InvalidRowIDException`
+
+Thrown by `Cart::get()`, `Cart::update()`, `Cart::remove()`, and `Cart::associate()` when the given `rowId` does not exist in the current cart instance.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\InvalidRowIDException;
+
+try {
+    $item = Cart::get('non-existing-row-id');
+} catch (InvalidRowIDException $e) {
+    // The rowId is not in the cart
+    report($e);
+}
+```
+
+---
+
+### `CartAlreadyStoredException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\CartAlreadyStoredException`
+
+Thrown by `Cart::store()` when a cart with the given identifier already exists in the database table.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\CartAlreadyStoredException;
+
+try {
+    Cart::store(auth()->id());
+} catch (CartAlreadyStoredException $e) {
+    // A stored cart already exists for this user
+    // Consider deleting the old row first or using restore() + store()
+}
+```
+
+---
+
+### `UnknownModelException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\UnknownModelException`
+
+Thrown by `Cart::associate()` when a string class name is supplied that does not exist.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\UnknownModelException;
+
+try {
+    Cart::associate($item->rowId, 'App\Models\NonExistingProduct');
+} catch (UnknownModelException $e) {
+    // The model class does not exist
+}
+```
+
+---
+
+### `InvalidCouponHashException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\InvalidCouponHashException`
+
+Thrown by `Cart::removeCoupon()` when the coupon code is not found on any item, and by `Cart::removeGlobalCoupon()` when the hash is not in the global coupons collection.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\InvalidCouponHashException;
+
+try {
+    Cart::removeCoupon('EXPIRED_CODE');
+} catch (InvalidCouponHashException $e) {
+    // Coupon not found in cart
+}
+
+try {
+    Cart::removeGlobalCoupon('stale-hash');
+} catch (InvalidCouponHashException $e) {
+    // Global coupon not found
+}
+```
+
+---
+
+## Artisan Commands
+
+### `cart:clear`
+
+```bash
+php artisan cart:clear [--force] [--instance=<name>]
+```
+
+Clears stored carts from the database table. Without `--force` the command prompts for confirmation. Use `--instance` to limit deletion to a specific cart instance.
+
+```bash
+# Clear all stored carts (with confirmation prompt)
+php artisan cart:clear
+
+# Skip confirmation
+php artisan cart:clear --force
+
+# Clear only stored carts for the 'wishlist' instance
+php artisan cart:clear --instance=wishlist --force
+```
+
+---
+
+## Testing Your Application
+
+### `Cart::fake()` Test Helper
+
+`Cart::fake()` creates an in-memory `Cart` instance and swaps the container binding so the Facade resolves the same fake object. No database or real session is needed.
+
+```php
+use OfflineAgency\LaravelCart\Facades\Cart;
+
+it('totals are correct', function () {
+    Cart::fake();
+
+    Cart::add('1', 'Alpha', '', 2, 10.0, 12.2, 2.2);
+    Cart::add('2', 'Beta',  '', 1,  5.0,  6.1, 1.1);
+
+    expect(Cart::count())->toBe(3)
+        ->and(Cart::uniqueCount())->toBe(2)
+        ->and(Cart::isEmpty())->toBeFalse();
+});
+```
+
+`Cart::fake()` returns the `Cart` instance so you can keep a reference:
+
+```php
+$fake = Cart::fake();
+
+Cart::add('1', 'Item', '', 1, 9.99, 12.19, 2.20);
+
+expect($fake->count())->toBe(1);
+```
+
+### Using FeatureTestCase
+
+Extend the package's own `FeatureTestCase` in your Pest tests:
+
+```php
+// tests/Pest.php
+use OfflineAgency\LaravelCart\Tests\FeatureTestCase;
+
+uses(FeatureTestCase::class)->in('.');
+```
+
+`FeatureTestCase` configures SQLite in-memory, the array session driver, and loads package migrations automatically.
+
+### Testing Cart Operations
+
+```php
+use OfflineAgency\LaravelCart\Facades\Cart;
+
+it('adds an item and returns the correct total', function () {
+    $item = Cart::add(1, 'Shirt', '', 2, 19.67, 24.00, 4.33);
+
+    expect(Cart::count())->toBe(2)
+        ->and(Cart::total())->toBe(48.0)
+        ->and(Cart::vat())->toBe(8.66);
+});
+
+it('removes an item from the cart', function () {
+    $item = Cart::add(1, 'Shirt', '', 1, 19.67, 24.00, 4.33);
+
+    Cart::remove($item->rowId);
+
+    expect(Cart::content())->toBeEmpty();
+});
+```
+
+### Testing with Cart Instances
+
+```php
+it('keeps wishlist and shopping cart separate', function () {
+    Cart::instance('shopping')->add(1, 'Shirt', '', 1, 19.67, 24.00, 4.33);
+    Cart::instance('wishlist')->add(2, 'Hat',   '', 1, 12.30, 15.00, 2.70);
+
+    expect(Cart::instance('shopping')->count())->toBe(1)
+        ->and(Cart::instance('wishlist')->count())->toBe(1);
+});
+```
+
+### Testing Event Listeners
+
+```php
+use Illuminate\Support\Facades\Event;
+use OfflineAgency\LaravelCart\Events\CartItemAdded;
+use OfflineAgency\LaravelCart\Events\CouponApplied;
+use OfflineAgency\LaravelCart\CartCoupon;
+
+it('dispatches CartItemAdded typed event', function () {
+    Event::fake();
+    $this->app->forgetInstance('cart');
+    $cart = $this->app->make('cart');
+
+    $cart->add(1, 'Shirt', '', 1, 19.67, 24.00, 4.33);
+
+    Event::assertDispatched(CartItemAdded::class);
+    Event::assertDispatched('cart.added'); // legacy string also dispatched when use_legacy_events=true
+});
+
+it('dispatches CouponApplied when addCoupon is called', function () {
+    Event::fake();
+    $this->app->forgetInstance('cart');
+    $cart = $this->app->make('cart');
+
+    $coupon = new CartCoupon(hash: 'h1', code: 'SAVE10', type: 'fixed', value: 10.0, isGlobal: true);
+    $cart->addCoupon($coupon);
+
+    Event::assertDispatched(CouponApplied::class, fn (CouponApplied $e) => $e->coupon->code === 'SAVE10');
+});
+```
+
+---
+
+### `CouponAlreadyAppliedException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\CouponAlreadyAppliedException`
+
+Thrown by `Cart::addCoupon()` when a coupon with the same hash is already in the cart.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\CouponAlreadyAppliedException;
+
+try {
+    Cart::addCoupon($coupon);
+    Cart::addCoupon($coupon); // duplicate hash
+} catch (CouponAlreadyAppliedException $e) {
+    echo $e->couponCode; // the duplicate coupon code
+}
+```
+
+---
+
+### `CouponNotFoundException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\CouponNotFoundException`
+
+Thrown by `Cart::removeCartCoupon()` when the hash or code is not found.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\CouponNotFoundException;
+
+try {
+    Cart::removeCartCoupon('NONEXISTENT');
+} catch (CouponNotFoundException $e) {
+    // $e->couponCode contains the searched value
+}
+```
+
+---
+
+### `InvalidCouponException`
+
+**Class:** `OfflineAgency\LaravelCart\Exceptions\InvalidCouponException`
+
+Thrown by `Cart::addCoupon()` when a coupon fails validation: the coupon is expired (`isExpired()` returns `true`) or the cart total is below the required `minCartAmount`.
+
+```php
+use OfflineAgency\LaravelCart\Exceptions\InvalidCouponException;
+
+try {
+    Cart::addCoupon($expiredCoupon);
+} catch (InvalidCouponException $e) {
+    // $e->couponCode contains the rejected coupon code
+}
+```
+
+---
+
+## Upgrade Guide
+
+### v3.x → v4.x
+
+**PHP and Laravel:** PHP minimum stays at 8.2. Laravel 12 is now the primary target.
+
+**`CartCoupon` is now `final readonly`:** Any code that mutates `CartCoupon` properties directly after construction will throw an `Error`. Use `addGlobalCoupon()` to create new coupons instead.
+
+**`applyGlobalCoupon()` is deprecated:** Replace calls to `Cart::applyCoupon($rowId = null, ...)` with `Cart::addGlobalCoupon()` or the new `Cart::addCoupon()`:
+
+```php
+// Before (deprecated)
+Cart::applyCoupon(null, 'PROMO10', 'percentage', 10.0);
+
+// After (legacy API)
+Cart::addGlobalCoupon('unique-hash', 'PROMO10', 'percentage', 10.0);
+
+// After (new API — supports expiry, minCartAmount, typed events)
+Cart::addCoupon(new CartCoupon(hash: 'unique-hash', code: 'PROMO10', type: 'percentage', value: 10.0, isGlobal: true));
+```
+
+**`Cart::applyCoupon($rowId, ...)` is deprecated** for item-level use. Replace with `Cart::addItemCoupon($rowId, ...)`.
+
+**New config keys:** Publish the updated config and add the two new keys, or set defaults in your `config/cart.php`:
+
+```php
+'use_legacy_events' => true,
+'rounding_mode'     => PHP_ROUND_HALF_UP,
+```
+
+**Typed events:** The package now dispatches typed event objects (`CartItemAdded`, `CouponApplied`, etc.) alongside legacy string events. Legacy string events remain active when `use_legacy_events = true` (the default). No immediate action required.
+
+**Migrations:** Run `php artisan vendor:publish --tag=cart-migrations && php artisan migrate` after upgrading. A new `coupons` column (nullable JSON) is added to the cart table to persist cart-level coupons across store/restore cycles.
+
+**Global coupon session key:** Global coupons are now stored under a separate session key (`cart.{instance}_global_coupons`). Existing sessions from v3.x that relied on the legacy `applyCoupon(null, ...)` discountCartItem approach will not carry forward global coupons automatically.
+
+---
+
+## FAQ & Troubleshooting
+
+**My cart is empty after a redirect — why?**
+
+The most common cause is a misconfigured session driver. Verify that `SESSION_DRIVER` in your `.env` is not `array` (which resets on every request). Use `file`, `cookie`, `database`, or `redis` in production. A second cause is calling `Cart::instance('name')` before the redirect but accessing `Cart::instance()` (the default) after it — always use the same instance name across requests.
+
+---
+
+**Two identical products appear as one row — is that a bug?**
+
+No. When two items share the same `id` and the same `options`, they produce the same `rowId` (MD5 of `$id . serialize($options)`). The cart merges them by summing quantities. To force separate rows, pass a differentiating option:
+
+```php
+Cart::add(5, 'Shirt', '', 1, 19.67, 24.00, 4.33, '', '', '', ['size' => 'M']);
+Cart::add(5, 'Shirt', '', 1, 19.67, 24.00, 4.33, '', '', '', ['size' => 'L']);
+// Two separate rows because options differ
+```
+
+---
+
+**Prices are not rounding correctly on the receipt.**
+
+All internal calculations use `formatFloat()`, which rounds to 2 decimal places using `number_format($value, 2, '.', '')`. Display formatting is controlled by `config('cart.format.decimals')`, `config('cart.format.decimal_point')`, and `config('cart.format.thousand_separator')`. If your receipt totals do not match, confirm that `price + vat = totalPrice` for each item before adding it to the cart, because the package stores all three values as provided and derives `vatRate` from them.
+
+---
+
+**`Cart::total()` returns `0` even though I added items.**
+
+Two common causes:
+
+1. **Facade not resolving:** Confirm the package is auto-discovered (check `php artisan package:discover`). If you disabled auto-discovery, add `OfflineAgency\LaravelCart\CartServiceProvider` to `config/app.php` providers.
+
+2. **Wrong instance:** If you added items with `Cart::instance('shopping')->add(...)` but call `Cart::total()` without switching back to the same instance, the default instance is empty. Always call `Cart::instance('shopping')->total()`.
+
+---
+
+**Can I use the cart without a database?**
+
+Yes. `Cart::store()` and `Cart::restore()` are optional. The cart runs entirely on the session by default. You only need the migration if you call those two methods.
+
+---
+
+**How do I reset the cart after checkout?**
+
+```php
+Cart::destroy();
+
+// Or for a named instance:
+Cart::instance('shopping')->destroy();
+```
+
+`destroy()` removes all items, global coupons, and cart options for the current instance.
+
+---
 
 ## Contributing
 
 Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
 
+---
+
 ## Security
 
 If you discover any security-related issues, please email <support@offlineagency.com> instead of using the issue tracker.
 
+---
+
+## Changelog
+
+Please see [CHANGELOG](CHANGELOG.md) for recent changes, or the [GitHub Releases](https://github.com/offline-agency/laravel-cart/releases) page for full version history.
+
+---
+
 ## Credits
 
-- [Giacomo Fabbian](https://github.com/Giacomo92)
-- [All Contributors](../../contributors)
+- [OFFLINE Agency](https://github.com/offline-agency)
 
-## About us
+Offline Agency is a web design agency based in Padua, Italy. See [offlineagency.it](https://offlineagency.it/) for an overview of their projects.
 
-Offline Agency is a web design agency based in Padua, Italy. You'll find an overview of our projects [on our website](https://offlineagency.it/).
+---
 
 ## License
 
